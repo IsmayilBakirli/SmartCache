@@ -3,6 +3,7 @@ using SmartCache.Application.Common.Helpers;
 using SmartCache.Application.Common.Interfaces;
 using SmartCache.Application.Contracts.Repositories.Contract;
 using SmartCache.Application.Contracts.Services.Contract;
+using SmartCache.Application.DTOs.Category;
 using SmartCache.Application.DTOs.Service;
 using SmartCache.Application.Exceptions;
 using SmartCache.Application.MappingProfile;
@@ -116,10 +117,19 @@ namespace SmartCache.Persistence.Services
 
             var entity = createDto.MapToService();
             await _repositoryManager.ServiceRepository.CreateAsync(entity);
-
             var dto = entity.MapToServiceGetDto();
-            await _redisService.SetAsync(GetDetailKey(dto.Id), dto, _cacheExpiry);
-            await _redisService.RemoveAsync(AllKey);
+            var detailKey =GetDetailKey(entity.Id);
+            var existingList = await _redisService.GetAsync<List<ServiceGetDto>>(AllKey);
+            if (existingList != null)
+            {
+                existingList.Add(dto); // 🔥 siyahıya əlavə et
+                await _redisService.SetAsync(AllKey, existingList, _cacheExpiry); // təkrar yaz
+            }
+            else
+            {
+                // Cache yoxdursa, yeni siyahı yarat
+                await _redisService.SetAsync(AllKey, new List<ServiceGetDto> { dto }, _cacheExpiry);
+            }
             await IncreaseVersionAsync();
         }
 

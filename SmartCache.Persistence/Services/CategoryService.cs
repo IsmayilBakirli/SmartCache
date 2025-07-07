@@ -116,7 +116,7 @@ namespace SmartCache.Persistence.Services
             await _repositoryManager.CategoryRepository.CreateAsync(entity);
 
             var dto = entity.MapToCategoryGetDto();
-            var detailKey = CacheKeyHelper.GetDetailKey("categories", dto.Id);
+            var detailKey = GetDetailKey(dto.Id);
 
 
             // ✅ AllKey-dən siyahını çək
@@ -138,7 +138,7 @@ namespace SmartCache.Persistence.Services
 
         public async Task UpdateAsync(CategoryUpdateDto updateDto)
         {
-            var detailKey = CacheKeyHelper.GetDetailKey("categories", updateDto.Id);
+            var detailKey = GetDetailKey(updateDto.Id);
             var existingDto = await GetByIdAsync(updateDto.Id);
             if (existingDto == null)
                 throw new NotFoundException($"Category with id {updateDto.Id} not found");

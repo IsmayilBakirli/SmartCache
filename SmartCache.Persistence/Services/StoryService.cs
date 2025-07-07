@@ -116,10 +116,25 @@ namespace SmartCache.Persistence.Services
             var dto = entity.MapToStoryGetDto();
             var detailKey = GetDetailKey(dto.Id);
 
+            // Detail cache yazılır
             await _redisService.SetAsync(detailKey, dto, _cacheExpiry);
-            await _redisService.RemoveAsync(AllKey);
+
+            // AllKey varsa, siyahıya əlavə olunur
+            var existingList = await _redisService.GetAsync<List<StoryGetDto>>(AllKey);
+            if (existingList != null)
+            {
+                existingList.Add(dto); // Yeni elementi əlavə et
+                await _redisService.SetAsync(AllKey, existingList, _cacheExpiry);
+            }
+            else
+            {
+                // Cache mövcud deyilsə, heç nə etmirik (və ya yeni siyahı yarada bilərik)
+                await _redisService.RemoveAsync(AllKey); // bu da kifayətdir əslində
+            }
+
             await IncreaseVersionAsync();
         }
+
 
         public async Task UpdateAsync(StoryUpdateDto updateDto)
         {

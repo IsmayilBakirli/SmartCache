@@ -1,0 +1,38 @@
+services:
+  smartcache-api:
+    build:
+      context: .
+      dockerfile: SmartCache.API/Dockerfile
+    ports:
+      - "5252:8080"     # Hostda 5252 portu konteynerdə 8080-ə yönləndirilir
+    depends_on:
+      - sqlserver
+      - redis
+    environment:
+      ASPNETCORE_ENVIRONMENT: "Development"
+      ASPNETCORE_URLS: "http://+:8080"    # App konteynerdə 8080 portunda dinləyir
+      ConnectionStrings__DefaultConnection: "Server=sqlserver,1433;Database=SmartCacheDb;User=sa;Password=K1a2m3A4l;Encrypt=False;TrustServerCertificate=True;"
+      Redis__ConnectionString: "redis:6379"
+    networks:
+      - smartnet
+
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    environment:
+      SA_PASSWORD: "K1a2m3A4l"
+      ACCEPT_EULA: "Y"
+    ports:
+      - "1633:1433"
+    networks:
+      - smartnet
+
+  redis:
+    image: redis:7.2
+    ports:
+      - "6379:6379"
+    networks:
+      - smartnet
+
+networks:
+  smartnet:
+    driver: bridge

@@ -9,6 +9,7 @@
         InternalServerError = 500,
         Created=201,
         Updated=204,
-        Deleted=204
+        Deleted=204,
+        NotModified=304
     }
 }

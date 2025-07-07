@@ -22,7 +22,8 @@ namespace SmartCache.API.Controllers
         public async Task<IActionResult> GetAll()
         {
             var data = await _serviceManager.StoryService.GetAllAsync();
-            return Ok(new ApiResponse<List<StoryGetDto>>(ResponseCode.Success, ResponseMessages.StoriesRetrieved, data));
+            return Ok(new ApiResponse<object>(ResponseCode.Success, ResponseMessages.ServicesRetrieved, new { Version = await _serviceManager.StoryService.GetVersionAsync(), Data = data }));
+
         }
 
         [HttpGet("{id}")]
@@ -31,6 +32,15 @@ namespace SmartCache.API.Controllers
             var data = await _serviceManager.StoryService.GetByIdAsync(id);
             return Ok(new ApiResponse<StoryGetDto>(ResponseCode.Success, ResponseMessages.StoryRetrieved, data));
         }
+
+
+        [HttpGet("has-changed")]
+        public async Task<IActionResult> HasChanged([FromQuery] int clientVersion = -1)
+        {
+            await _serviceManager.StoryService.CheckVersionAsync(clientVersion);
+            return Ok(new ApiResponse<object>(ResponseCode.Success, ResponseMessages.ChangeDeceted));
+        }
+
 
         [HttpPost]
         public async Task<IActionResult> Add(StoryCreateDto dto)

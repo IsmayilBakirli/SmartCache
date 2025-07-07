@@ -22,6 +22,9 @@
         public const string ServiceDeleted = "Service deleted successfully.";
 
         public const string InternalError = "Internal server error.";
+        public const string NotModified = "No changes detected";
+
+        public const string ChangeDeceted = "Changes detected";
 
     }
 }

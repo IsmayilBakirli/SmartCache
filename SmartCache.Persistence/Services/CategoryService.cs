@@ -17,6 +17,8 @@ namespace SmartCache.Persistence.Services
         private readonly TimeSpan _cacheExpiry = TimeSpan.FromMinutes(10);
 
         private static readonly string AllKey = CacheKeyHelper.GetAllKey("categories");
+        private static readonly string VersionKey = "categories:version";
+
 
         public CategoryService(IRepositoryManager repositoryManager, IRedisService redisService, ILogger<CategoryService> logger)
         {
@@ -24,96 +26,151 @@ namespace SmartCache.Persistence.Services
             _redisService = redisService;
             _logger = logger;
         }
+        private string GetDetailKey(int id)
+        {
+            return CacheKeyHelper.GetDetailKey("categories", id);
+        }
+        public async Task<int> GetVersionAsync()
+        {
+            var version = await _redisService.GetAsync<int?>(VersionKey);
+            if (version == null)
+            {
+                version = 0;
+                await _redisService.SetAsync(VersionKey, version.Value);
+            }
+            return version.Value;
+        }
 
-        public async Task<List<CategoryGetDto>> GetAllAsync(int skip = 0, int take = int.MaxValue)
+        public async Task<int> CheckVersionAsync(int clientVersion)
+        {
+            var currentVersion = await GetVersionAsync();
+
+            if (clientVersion == currentVersion)
+            {
+                throw new BadRequestException("No changes detected.");
+            }
+            return currentVersion;
+        }
+
+        private async Task IncreaseVersionAsync()
+        {
+            var version = await GetVersionAsync();
+            version++;
+            await _redisService.SetAsync(VersionKey, version);
+        }
+
+        public async Task<List<CategoryGetDto>> GetAllAsync()
         {
             var cached = await _redisService.GetAsync<List<CategoryGetDto>>(AllKey);
             if (cached != null)
-                return cached.Skip(skip).Take(take).ToList();
+                return cached.ToList();
 
-            _logger.LogInformation("GetAllAsync - Redis boşdur, DB-yə sorğu göndərilir.");
+            _logger.LogInformation("DB-dən GetAllAsync çağırıldı. skip: {Skip}, take: {Take}");
 
-            var data = await _repositoryManager.CategoryRepository.GetAllAsync(0, int.MaxValue);
+            var data = await _repositoryManager.CategoryRepository.GetAllAsync();
             if (data == null || data.Count == 0)
                 throw new NotFoundException("No category found.");
 
             var dtoList = data.MapToCategoryGetDtos();
             await _redisService.SetAsync(AllKey, dtoList, _cacheExpiry);
 
-            return dtoList.Skip(skip).Take(take).ToList();
+            return dtoList.ToList();
         }
+
 
         public async Task<CategoryGetDto> GetByIdAsync(int id)
         {
-            var cached = await _redisService.GetAsync<List<CategoryGetDto>>(AllKey);
-            if (cached != null)
+            var cachedList = await _redisService.GetAsync<List<CategoryGetDto>>(AllKey);
+            if (cachedList != null)
             {
-                var item = cached.FirstOrDefault(x => x.Id == id);
+                var item = cachedList.FirstOrDefault(x => x.Id == id);
                 if (item != null)
                     return item;
-
-                throw new NotFoundException($"Category with id {id} not found in cache.");
             }
 
-            _logger.LogInformation("GetByIdAsync - Cache tapılmadı, DB-yə sorğu göndərilir. id: {Id}", id);
+            var detailKey =GetDetailKey(id);
+            var cachedDetail = await _redisService.GetAsync<CategoryGetDto>(detailKey);
+            if (cachedDetail != null)
+                return cachedDetail;
 
+            _logger.LogInformation("GetByIdAsync - Cache tapılmadı, DB-dən çəkilir. id: {Id}", id);
             var entity = await _repositoryManager.CategoryRepository.FindByIdAsync(id);
             if (entity == null)
                 throw new NotFoundException($"Category with id {id} not found.");
 
             var dto = entity.MapToCategoryGetDto();
-            await _redisService.SetAsync(AllKey, new List<CategoryGetDto> { dto }, _cacheExpiry);
+
+            // Yalnız detailKey üçün cache yeniləmə
+            await _redisService.SetAsync(detailKey, dto, _cacheExpiry);
+
+            // AllKey-ə partial siyahı əlavə etmə
+            // await _redisService.SetAsync(AllKey, ...) - bu sətir çıxarıldı
 
             return dto;
         }
+
 
         public async Task CreateAsync(CategoryCreateDto createDto)
         {
             var entity = createDto.MapToCategory();
             await _repositoryManager.CategoryRepository.CreateAsync(entity);
-            var dto = entity.MapToCategoryGetDto();
 
-            var cached = await _redisService.GetAsync<List<CategoryGetDto>>(AllKey) ?? new List<CategoryGetDto>();
-            cached.Add(dto);
-            await _redisService.SetAsync(AllKey, cached, _cacheExpiry);
+            var dto = entity.MapToCategoryGetDto();
+            var detailKey = CacheKeyHelper.GetDetailKey("categories", dto.Id);
+
+
+            // ✅ AllKey-dən siyahını çək
+            var existingList = await _redisService.GetAsync<List<CategoryGetDto>>(AllKey);
+            if (existingList != null)
+            {
+                existingList.Add(dto); // 🔥 siyahıya əlavə et
+                await _redisService.SetAsync(AllKey, existingList, _cacheExpiry); // təkrar yaz
+            }
+            else
+            {
+                // Cache yoxdursa, yeni siyahı yarat
+                await _redisService.SetAsync(AllKey, new List<CategoryGetDto> { dto }, _cacheExpiry);
+            }
+            await IncreaseVersionAsync();
+
         }
+
 
         public async Task UpdateAsync(CategoryUpdateDto updateDto)
         {
-            var cached = await _redisService.GetAsync<List<CategoryGetDto>>(AllKey);
-            if (cached == null)
-                throw new NotFoundException("Category listesi cache-də tapılmadı.");
-
-            var index = cached.FindIndex(x => x.Id == updateDto.Id);
-            if (index == -1)
+            var detailKey = CacheKeyHelper.GetDetailKey("categories", updateDto.Id);
+            var existingDto = await GetByIdAsync(updateDto.Id);
+            if (existingDto == null)
                 throw new NotFoundException($"Category with id {updateDto.Id} not found");
 
-            var entity = cached[index].MapToCategory();
+            var entity = existingDto.MapToCategory();
+
             updateDto.MapToCategory(entity);
             await _repositoryManager.CategoryRepository.UpdateAsync(entity);
 
-            cached[index] = entity.MapToCategoryGetDto();
-            await _redisService.SetAsync(AllKey, cached, _cacheExpiry);
+            var updatedDto = entity.MapToCategoryGetDto();
+            await _redisService.SetAsync(detailKey, updatedDto, _cacheExpiry);
+            await _redisService.RemoveAsync(AllKey);
+            await IncreaseVersionAsync();
         }
+
 
         public async Task DeleteAsync(int id)
         {
-            var cached = await _redisService.GetAsync<List<CategoryGetDto>>(AllKey);
-            if (cached == null)
-                throw new NotFoundException("Category listesi cache-də tapılmadı.");
-
-            var dto = cached.FirstOrDefault(x => x.Id == id);
-            if (dto == null)
-                throw new NotFoundException($"Category with id {id} not found");
+            var dto = await GetByIdAsync(id);
+            var entity = dto.MapToCategory();
 
             if (!await _repositoryManager.CategoryRepository.CanDeleteCategoryAsync(id))
                 throw new BadRequestException("This category is used by one or more services and cannot be deleted.");
 
-            var entity = dto.MapToCategory();
             await _repositoryManager.CategoryRepository.DeleteAsync(entity);
 
-            cached.RemoveAll(x => x.Id == id);
-            await _redisService.SetAsync(AllKey, cached, _cacheExpiry);
+            var detailKey = CacheKeyHelper.GetDetailKey("categories", id);
+            await _redisService.RemoveAsync(detailKey);
+            await _redisService.RemoveAsync(AllKey);
+            await IncreaseVersionAsync();
         }
+
+
     }
 }

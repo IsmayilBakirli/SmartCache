@@ -42,6 +42,16 @@ namespace SmartCache.API.Middlewares
                 statusCode = (int)ResponseCode.NotFound;
                 message = exception.Message;
             }
+            else if(exception is BadRequestException)
+            {
+                statusCode = (int)ResponseCode.BadRequest;
+                message = exception.Message;
+            }
+            else if (exception is VersionNotModifiedException)
+            {
+                statusCode = (int)ResponseCode.NotModified;
+                message = exception.Message;
+            }
             else
             {
                 statusCode =(int) ResponseCode.InternalServerError; 

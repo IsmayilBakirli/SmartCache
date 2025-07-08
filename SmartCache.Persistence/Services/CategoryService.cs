@@ -58,12 +58,12 @@ namespace SmartCache.Persistence.Services
             version++;
             await _redisService.SetAsync(VersionKey, version);
         }
-
         public async Task<List<CategoryGetDto>> GetAllAsync()
         {
+            int version = await GetVersionAsync();
             var cached = await _redisService.GetAsync<List<CategoryGetDto>>(AllKey);
             if (cached != null)
-                return cached.ToList();
+                return cached;
 
             _logger.LogInformation("DB-dən GetAllAsync çağırıldı. skip: {Skip}, take: {Take}");
 
@@ -72,9 +72,10 @@ namespace SmartCache.Persistence.Services
                 throw new NotFoundException("No category found.");
 
             var dtoList = data.MapToCategoryGetDtos();
+          
             await _redisService.SetAsync(AllKey, dtoList, _cacheExpiry);
 
-            return dtoList.ToList();
+            return dtoList;
         }
 
 

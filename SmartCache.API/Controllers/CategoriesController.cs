@@ -23,7 +23,8 @@ namespace SmartCache.API.Controllers
         public async Task<IActionResult> GetAll()
         {
             var data = await _serviceManager.CategoryService.GetAllAsync();
-            return Ok(new ApiResponse<object>(ResponseCode.Success, ResponseMessages.ServicesRetrieved, new { Version = await _serviceManager.CategoryService.GetVersionAsync(), Data = data }));
+            var version = await _serviceManager.CategoryService.GetVersionAsync();
+            return Ok(new ApiResponse<object>(ResponseCode.Success, ResponseMessages.ServicesRetrieved,data,version));
 
         }
 
@@ -36,8 +37,8 @@ namespace SmartCache.API.Controllers
         }
 
 
-        [HttpGet("has-changed")]
-        public async Task<IActionResult> HasChanged([FromQuery] int clientVersion = -1)
+        [HttpGet("has-changed/{clientVersion}")]
+        public async Task<IActionResult> HasChanged(int clientVersion)
         {
             await _serviceManager.CategoryService.CheckVersionAsync(clientVersion);
             return Ok(new ApiResponse<object>(ResponseCode.Success, ResponseMessages.ChangeDeceted));

@@ -34,32 +34,32 @@ namespace SmartCache.API.Middlewares
         {
             context.Response.ContentType = "application/json";
 
-            int statusCode;
+            ResponseCode statusCode;
             string message;
 
             if (exception is NotFoundException)
             {
-                statusCode = (int)ResponseCode.NotFound;
+                statusCode = ResponseCode.NotFound;
                 message = exception.Message;
             }
             else if(exception is BadRequestException)
             {
-                statusCode = (int)ResponseCode.BadRequest;
+                statusCode = ResponseCode.BadRequest;
                 message = exception.Message;
             }
             else if (exception is VersionNotModifiedException)
             {
-                statusCode = (int)ResponseCode.NotModified;
+                statusCode = ResponseCode.NotModified;
                 message = exception.Message;
             }
             else
             {
-                statusCode =(int) ResponseCode.InternalServerError; 
+                statusCode = ResponseCode.InternalServerError; 
                 message = exception.Message;
             }
 
             var response = new ApiResponse<object>(statusCode, message, null);
-            context.Response.StatusCode = statusCode;
+            context.Response.StatusCode =(int) statusCode;
 
             return context.Response.WriteAsync(JsonSerializer.Serialize(response));
         }

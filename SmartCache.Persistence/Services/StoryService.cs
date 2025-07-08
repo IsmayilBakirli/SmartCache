@@ -63,7 +63,7 @@ namespace SmartCache.Persistence.Services
         {
             var cached = await _redisService.GetAsync<List<StoryGetDto>>(AllKey);
             if (cached != null)
-                return cached.ToList();
+                return (cached);
 
             _logger.LogInformation("GetAllAsync - Redis boşdur, DB-yə sorğu göndərilir.");
 
@@ -74,7 +74,7 @@ namespace SmartCache.Persistence.Services
             var dtoList = data.MapToStoryGetDtos();
             await _redisService.SetAsync(AllKey, dtoList, _cacheExpiry);
 
-            return dtoList.ToList();
+            return dtoList;
         }
 
         public async Task<StoryGetDto> GetByIdAsync(int id)

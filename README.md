@@ -24,22 +24,22 @@ SmartCache is a scalable, high-performance ASP.NET Core 8 Web API designed to ef
 
 SmartCache aims to provide:
 
-- **Fast API responses** by leveraging Redis cache to store frequently accessed data.
-- **Data consistency** between client and server using a **versioning system** that tracks changes.
-- **Scalable architecture** that can easily grow with application demands.
+- **Fast API responses** by leveraging Redis cache to store frequently accessed data.  
+- **Data consistency** between client and server using a **versioning system** that tracks changes.  
+- **Scalable architecture** that can easily grow with application demands.  
 - **Ease of deployment** with containerization using Docker.
 
 ---
 
 ## Technologies & Tools
 
-- **ASP.NET Core 8** – Modern cross-platform framework for building Web APIs.
-- **Entity Framework Core + PostgreSQL** – For robust data persistence and querying.
-- **Redis** – In-memory data structure store used for caching to boost read performance.
-- **StackExchange.Redis** – .NET client library to communicate with Redis.
-- **Docker** – Containerization platform to package API, Redis, and PostgreSQL consistently.
-- **Swagger (OpenAPI)** – Auto-generated API documentation and testing UI.
-- **Serilog** – Structured logging framework.
+- **ASP.NET Core 8** – Modern cross-platform framework for building Web APIs.  
+- **Entity Framework Core + PostgreSQL** – For robust data persistence and querying.  
+- **Redis** – In-memory data structure store used for caching to boost read performance.  
+- **StackExchange.Redis** – .NET client library to communicate with Redis.  
+- **Docker** – Containerization platform to package API, Redis, and PostgreSQL consistently.  
+- **Swagger (OpenAPI)** – Auto-generated API documentation and testing UI.  
+- **Serilog** – Structured logging framework.  
 - **Middleware** – Centralized exception handling.
 
 ---
@@ -50,30 +50,32 @@ SmartCache aims to provide:
 
 This project follows the **Onion Architecture** principle to achieve a clean separation of concerns and improve maintainability, testability, and scalability.
 
-The architecture is divided into distinct layers:
+Layers:
 
-- **Core Layer:** Contains the domain entities and business logic.
-- **Application Layer:** Implements business rules, services, and interfaces.
-- **Infrastructure Layer:** Responsible for data access implementations, caching (Redis), external services, and other infrastructure concerns.
-- **Presentation Layer:** Handles HTTP API controllers and user interaction.
+- **Core Layer:** Domain entities and business logic.  
+- **Application Layer:** Business rules, services, and interfaces.  
+- **Infrastructure Layer:** Data access, caching (Redis), external services.  
+- **Presentation Layer:** HTTP API controllers and user interaction.
 
-By organizing the codebase this way, the project ensures loose coupling between layers and enhances flexibility for future changes.
+---
 
 ### Layers & Responsibilities
 
-- **API Layer (Controllers):** Handles HTTP requests, routes to appropriate services, returns structured responses.
-- **Service Layer:** Business logic and caching/versioning mechanisms.
-- **Repository Layer:** Data access abstraction using Entity Framework Core.
-- **Redis Cache:** Stores serialized DTO lists and single items, plus version keys.
-- **DTOs:** Data Transfer Objects for decoupling API contracts from entities.
-- **Exception Handling:** Middleware catches exceptions, formats JSON error responses.
+- **API Layer (Controllers):** Handle HTTP requests and responses.  
+- **Service Layer:** Business logic plus caching/versioning mechanisms.  
+- **Repository Layer:** Data access via Entity Framework Core.  
+- **Redis Cache:** Stores serialized DTOs and version keys.  
+- **DTOs:** Decouple API contracts from entities.  
+- **Exception Handling:** Middleware catches exceptions and formats JSON error responses.
+
+---
 
 ### Versioning Concept
 
-- Every entity type (`categories`, `services`, `stories`) has a **version integer** stored in Redis.
-- When data changes (create/update/delete), this version increments.
-- Clients store the version alongside cached data.
-- Clients can query the server with their version via `/has-changed/{clientVersion}` to quickly know if they need to refresh data.
+- Each entity (`categories`, `services`, `stories`) has a **version integer** in Redis.  
+- On data changes (create/update/delete), the version increments.  
+- Clients store the version with cached data.  
+- Clients check data freshness via a centralized **SyncController** endpoint.
 
 ---
 
@@ -81,61 +83,49 @@ By organizing the codebase this way, the project ensures loose coupling between 
 
 ### Why Cache?
 
-- Reduces database query load for frequent GET requests.
-- Improves latency by serving data from in-memory cache.
-- Scales better for read-heavy workloads.
+- Reduces DB load for frequent GETs.  
+- Improves response latency.  
+- Scales well for read-heavy usage.
 
 ### Cache Keys
 
-| Purpose            | Key Format               | Description                       |
-|--------------------|--------------------------|---------------------------------|
-| List cache         | `{entity}:all`            | Cached list of all items         |
-| Single item cache  | `{entity}:{id}`           | Cached single item detail        |
-| Version key        | `{entity}:version`        | Integer version of entity cache  |
+| Purpose           | Key Format        | Description                     |
+|-------------------|-------------------|---------------------------------|
+| List cache        | `{entity}:all`    | Cached list of all items         |
+| Single item cache | `{entity}:{id}`   | Cached single item detail        |
+| Version key       | `{entity}:version`| Current version integer          |
 
 ### Cache Expiry
 
-- Default TTL for cached data is **10 minutes**.
-- Version keys do not expire automatically, only incremented on data change.
+- Default TTL: **10 minutes** for cached data.  
+- Version keys do not expire; only increment on data changes.
 
 ### Cache Read Flow
 
-1. **Get All:** Try reading from Redis list cache.
-2. If cache miss → Fetch from DB → Cache result → Return data + current version.
-3. **Get By Id:** Try single item cache → fallback to list cache to find item → fallback to DB → cache individual item.
+1. Try reading from Redis list cache.  
+2. On miss, fetch from DB, cache, then return with current version.  
+3. For single item, try single cache → fallback to list cache → fallback to DB → cache individual item.
 
 ### Cache Write Flow
 
-- On **Create**:
-  - Insert entity into DB.
-  - Add new DTO to cached list if exists; otherwise initialize cache.
-  - Cache individual item.
-  - Increment version.
-- On **Update**:
-  - Update entity in DB.
-  - Update individual cache.
-  - Remove cached list (forcing reload on next get all).
-  - Increment version.
-- On **Delete**:
-  - Delete entity from DB.
-  - Remove individual cache and list cache.
-  - Increment version.
+- **Create:** Insert DB → add to cached list or init → cache item → increment version.  
+- **Update:** Update DB → update cache item → remove cached list → increment version.  
+- **Delete:** Delete DB → remove cache item & list → increment version.
 
 ---
 
 ## Version-Based Cache Invalidation
 
-### Problem Addressed
+### Problem
 
-Without versioning, clients do not know if cached data is stale unless they pull full data frequently.
+Clients cannot know if their cached data is stale without frequent full data fetches.
 
 ### Solution
 
-- Clients store last known version.
-- Query `/has-changed/{clientVersion}` endpoint before fetching full data.
-- Server compares client version to current Redis version.
-- If no change → returns HTTP 400 with message "No changes detected."
-- If changed → client fetches fresh data with new version.
+- Clients keep last known versions.  
+- Call **SyncController**'s POST `/api/sync/check-versions` endpoint with client versions.  
+- Server compares and returns which entities have changed.  
+- Clients decide to refresh only if versions differ.
 
 ---
 
@@ -143,29 +133,35 @@ Without versioning, clients do not know if cached data is stale unless they pull
 
 ### CategoriesController (`/api/categories`)
 
-| Method | Endpoint                    | Description                         |
-|--------|-----------------------------|-----------------------------------|
-| GET    | `/`                        | Get all categories with version   |
-| GET    | `/{id}`                    | Get category by ID                 |
-| GET    | `/has-changed/{clientVersion}` | Check if category data has changed |
-| POST   | `/`                        | Create a new category              |
-| PUT    | `/`                        | Update an existing category        |
-| DELETE | `/{id}`                    | Delete a category                  |
+| Method | Endpoint  | Description              |
+|--------|-----------|--------------------------|
+| GET    | `/`       | Get all categories with version.  |
+| GET    | `/{id}`   | Get category by ID.      |
+| POST   | `/`       | Create a new category.   |
+| PUT    | `/`       | Update an existing category.  |
+| DELETE | `/{id}`   | Delete a category.       |
 
 ### ServicesController (`/api/services`)
 
-Identical endpoint structure, managing services.
+Same endpoint structure as CategoriesController, for services.
 
 ### StoriesController (`/api/stories`)
 
-Identical endpoint structure, managing stories.
+Same endpoint structure as CategoriesController, for stories.
+
+### SyncController (`/api/sync`)
+
+| Method | Endpoint                | Description                                      |
+|--------|-------------------------|------------------------------------------------|
+| POST   | `/check-versions`       | Check if entity versions have changed compared to client versions. |
 
 ---
 
 ## Error Handling
 
-- Global middleware captures exceptions.
-- Returns standardized JSON error responses:
+- Global middleware captures exceptions and returns JSON error responses.
+
+Example:
 
 ```json
 {

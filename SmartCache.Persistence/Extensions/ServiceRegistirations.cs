@@ -24,6 +24,8 @@ namespace SmartCache.Persistence.Extensions
             serviceCollection.AddScoped<IStoryRepository, StoryRepository>();
             serviceCollection.AddScoped<IStoryService, StoryService>();
 
+            serviceCollection.AddScoped<ISyncService, SyncService>();
+
             serviceCollection.AddSingleton(configuration.GetConnectionString("DefaultConnection"));
             serviceCollection.AddDbContext<SmartCacheContext>(options =>
             {

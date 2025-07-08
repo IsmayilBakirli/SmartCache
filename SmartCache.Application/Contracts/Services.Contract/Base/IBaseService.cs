@@ -2,13 +2,13 @@
 {
     public interface IBaseService<TGetDto, TCreateDto, TUpdateDto>
     {
-        Task<(List<TGetDto>,int version)> GetAllAsync();
+        Task<List<TGetDto>> GetAllAsync();
 
         Task<TGetDto> GetByIdAsync(int id);
 
         Task<int> GetVersionAsync();
 
-        Task<int> CheckVersionAsync(int clientId);
+        Task<bool> CheckVersionChange(int clientId);
 
         Task CreateAsync(TCreateDto createDto);
 

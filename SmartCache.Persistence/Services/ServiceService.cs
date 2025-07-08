@@ -15,9 +15,8 @@ namespace SmartCache.Persistence.Services
         private readonly IRedisService _redisService;
         private readonly ILogger<ServiceService> _logger;
         private readonly TimeSpan _cacheExpiry = TimeSpan.FromMinutes(10);
+        private static readonly CacheKeyHelper.EntityKeyBuilder _keys = CacheKeyHelper.Services;
 
-        private static readonly string VersionKey = "services:version";
-        private static readonly string AllKey = CacheKeyHelper.GetAllKey("services");
 
         public ServiceService(IRepositoryManager repositoryManager, IRedisService redisService, ILogger<ServiceService> logger)
         {
@@ -26,85 +25,79 @@ namespace SmartCache.Persistence.Services
             _logger = logger;
         }
 
-        private string GetDetailKey(int id)
-        {
-            return CacheKeyHelper.GetDetailKey("services", id);
-        }
 
         public async Task<int> GetVersionAsync()
         {
-            var version = await _redisService.GetAsync<int?>(VersionKey);
+            var version = await _redisService.GetAsync<int?>(_keys.Version);
             if (version == null)
             {
                 version = 0;
-                await _redisService.SetAsync(VersionKey, version.Value);
+                await _redisService.SetAsync(_keys.Version, version.Value);
             }
             return version.Value;
         }
 
-        public async Task<int> CheckVersionAsync(int clientVersion)
+        public async Task<bool> CheckVersionChange(int clientVersion)
         {
             var currentVersion = await GetVersionAsync();
 
             if (clientVersion == currentVersion)
             {
-                throw new BadRequestException("No changes detected.");
+                return false;
             }
-            return currentVersion;
+            return true;
         }
 
         private async Task IncreaseVersionAsync()
         {
             var version = await GetVersionAsync();
             version++;
-            await _redisService.SetAsync(VersionKey, version);
+            await _redisService.SetAsync(_keys.Version, version);
+            _logger.LogInformation("IncreaseVersionAsync - Yeni versiya təyin olundu: {Version}", version);
         }
 
-        public async Task<(List<ServiceGetDto>,int)> GetAllAsync()
+        public async Task<List<ServiceGetDto>> GetAllAsync()
         {
-            var cached = await _redisService.GetAsync<List<ServiceGetDto>>(AllKey);
+            var cached = await _redisService.GetAsync<List<ServiceGetDto>>(_keys.All);
             if (cached != null)
-                return (cached,await GetVersionAsync());
-
-            _logger.LogInformation("DB-dən GetAllAsync çağırıldı. skip: {Skip}, take: {Take}");
+            {
+                _logger.LogInformation("GetAllAsync - Məlumat cache-dən qaytarıldı.");  
+                return cached;
+            }
+            _logger.LogInformation("GetAllAsync - Cache tapılmadı, DB-dən çəkilir.");
 
             var data = await _repositoryManager.ServiceRepository.GetAllAsync();
             if (data == null || data.Count == 0)
                 throw new NotFoundException("No service found.");
 
             var dtoList = data.MapToServiceGetDtos();
-            await _redisService.SetAsync(AllKey, dtoList, _cacheExpiry);
-
-            return (dtoList,await GetVersionAsync());
+            await _redisService.SetAsync(_keys.All, dtoList, _cacheExpiry);
+            _logger.LogInformation("GetAllAsync - DB-dən alınan məlumat cache-ə yazıldı.");
+            return dtoList;
         }
 
         public async Task<ServiceGetDto> GetByIdAsync(int id)
         {
-            var cachedList = await _redisService.GetAsync<List<ServiceGetDto>>(AllKey);
-            if (cachedList != null)
+            var cachedDetail = await _redisService.GetAsync<ServiceGetDto>(_keys.Detail(id));
+            if (cachedDetail != null)
             {
-                var item = cachedList.FirstOrDefault(x => x.Id == id);
-                if (item != null)
-                    return item;
+                _logger.LogInformation("GetByIdAsync - id: {id} üçün məlumat cache-dən qaytarıldı.", id);
+                return cachedDetail;
             }
 
-            var detailKey = GetDetailKey(id);
-            var cachedDetail = await _redisService.GetAsync<ServiceGetDto>(detailKey);
-            if (cachedDetail != null)
-                return cachedDetail;
-
-            _logger.LogInformation("GetByIdAsync - Cache tapılmadı, DB-dən çəkilir. id: {Id}", id);
+            _logger.LogInformation("GetByIdAsync - id: {id} üçün cache tapılmadı, DB-dən çəkilir.", id);
 
             var entity = await _repositoryManager.ServiceRepository.FindByIdAsync(id);
             if (entity == null)
                 throw new NotFoundException($"No service found with {id} id.");
 
             var dto = entity.MapToServiceGetDto();
-
-            await _redisService.SetAsync(detailKey, dto, _cacheExpiry);
+            await _redisService.SetAsync(_keys.Detail(id), dto, _cacheExpiry);
+            _logger.LogInformation("GetByIdAsync - id: {Id} üçün məlumat cache-ə yazıldı.", id);
 
             return dto;
         }
+
 
 
 
@@ -116,21 +109,32 @@ namespace SmartCache.Persistence.Services
 
             var entity = createDto.MapToService();
             await _repositoryManager.ServiceRepository.CreateAsync(entity);
-            var dto = entity.MapToServiceGetDto();
-            var detailKey =GetDetailKey(entity.Id);
-            var existingList = await _redisService.GetAsync<List<ServiceGetDto>>(AllKey);
+
+            // Yaratdıqdan sonra entity Id var, ona görə yenidən DB-dən yükləmək olar:
+            var createdEntity = await _repositoryManager.ServiceRepository.FindByIdAsync(entity.Id);
+
+            // Map edəndə category məlumatını da əlavə edirik
+            var dto = createdEntity.MapToServiceGetDto();
+
+            // CategoryName-in doldurulması (əgər MapToServiceGetDto avtomatik etmirsə)
+
+
+            await _redisService.SetAsync(_keys.Detail(dto.Id), dto, _cacheExpiry);
+            _logger.LogInformation("CreateAsync - Yeni service id: {Id} üçün cache-ə yazıldı.", dto.Id);
+
+            var existingList = await _redisService.GetAsync<List<ServiceGetDto>>(_keys.All);
             if (existingList != null)
             {
-                existingList.Add(dto); // 🔥 siyahıya əlavə et
-                await _redisService.SetAsync(AllKey, existingList, _cacheExpiry); // təkrar yaz
+                existingList.Add(dto);
+                await _redisService.SetAsync(_keys.All, existingList, _cacheExpiry);
+                _logger.LogInformation("CreateAsync - Yeni service id: {Id} ümumi cache listinə əlavə olundu.", dto.Id);
             }
-            else
-            {
-                // Cache yoxdursa, yeni siyahı yarat
-                await _redisService.SetAsync(AllKey, new List<ServiceGetDto> { dto }, _cacheExpiry);
-            }
+
             await IncreaseVersionAsync();
         }
+
+
+
 
         public async Task UpdateAsync(ServiceUpdateDto updateDto)
         {
@@ -144,8 +148,13 @@ namespace SmartCache.Persistence.Services
             await _repositoryManager.ServiceRepository.UpdateAsync(entity);
 
             var updatedDto = entity.MapToServiceGetDto();
-            await _redisService.SetAsync(GetDetailKey(updatedDto.Id), updatedDto, _cacheExpiry);
-            await _redisService.RemoveAsync(AllKey);
+
+            await _redisService.SetAsync(_keys.Detail(updatedDto.Id), updatedDto, _cacheExpiry);
+            _logger.LogInformation($"UpdateAsync - Service id: {updatedDto.Id} yeniləndi və cache-ə yazıldı.", updatedDto.Id);
+
+            await _redisService.RemoveAsync(_keys.All);
+            _logger.LogInformation("UpdateAsync - Ümumi cache ('{Key}') silindi.", _keys.All);
+
             await IncreaseVersionAsync();
         }
 
@@ -155,8 +164,12 @@ namespace SmartCache.Persistence.Services
             var entity = dto.MapToService();
             await _repositoryManager.ServiceRepository.DeleteAsync(entity);
 
-            await _redisService.RemoveAsync(GetDetailKey(id));
-            await _redisService.RemoveAsync(AllKey);
+            await _redisService.RemoveAsync(_keys.Detail(id));
+            _logger.LogInformation("DeleteAsync - Service id: {Id} üçün detail cache silindi.", id);
+
+            await _redisService.RemoveAsync(_keys.All);
+            _logger.LogInformation("DeleteAsync - Ümumi cache ('{Key}') silindi.", _keys.All);
+
             await IncreaseVersionAsync();
         }
     }

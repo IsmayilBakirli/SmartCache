@@ -2,6 +2,7 @@
 using SmartCache.Application.Contracts.Repositories.Contract;
 using SmartCache.Domain.Entities;
 using SmartCache.Persistence.Repositories.Base;
+using System.Data;
 
 namespace SmartCache.Persistence.Repositories
 {
@@ -11,17 +12,16 @@ namespace SmartCache.Persistence.Repositories
         public async Task<bool> CanDeleteCategoryAsync(int categoryId)
         {
             using var connection = new SqlConnection(_connectionString);
-            await connection.OpenAsync();
-
-            using var command = connection.CreateCommand();
-            command.CommandText = "SELECT COUNT(1) FROM Services WHERE CategoryId = @CategoryId AND IsDeleted IS NULL";
+            using var command = new SqlCommand("CanDeleteCategory", connection)
+            {
+                CommandType = CommandType.StoredProcedure
+            };
             command.Parameters.AddWithValue("@CategoryId", categoryId);
 
+            await connection.OpenAsync();
             var count = (int)await command.ExecuteScalarAsync();
 
-            return count == 0;  // 0-dırsa silmək olar, yoxsa olmaz
+            return count == 0;
         }
-        
-
     }
 }

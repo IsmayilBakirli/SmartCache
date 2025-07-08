@@ -26,5 +26,7 @@
 
         public const string ChangeDeceted = "Changes detected";
 
+        public const string SyncSuccessFull = "Data successfully synchronized.";
+
     }
 }

@@ -13,8 +13,6 @@ SmartCache is a scalable, high-performance ASP.NET Core 8 Web API designed to ef
 5. [Version-Based Cache Invalidation](#version-based-cache-invalidation)  
 6. [API Endpoints Overview](#api-endpoints-overview)  
 7. [Error Handling](#error-handling)  
-8. [Docker Setup & Deployment](#docker-setup--deployment)  
-9. [Running the Application](#running-the-application)  
 
 ---
 
@@ -158,40 +156,3 @@ Example:
   "message": "No changes detected.",
   "data": null
 }
-## Docker Setup & Deployment
-
-This project uses Docker Compose to run the ASP.NET Core API, Microsoft SQL Server database, and Redis cache in separate containers.
-
-### Prerequisites
-
-- Docker
-- Docker Compose
-
-### Running the Containers
-
-1. Build and start containers:
-
-```bash
-docker-compose up --build
-
-## Running the Application
-
-After setting up Docker containers, you can run and access the SmartCache API as follows:
-
-### Steps
-
-1. Ensure Docker and Docker Compose are installed and running on your machine.
-
-2. Start the application stack with:
-
-```bash
-docker-compose up --build
-## Running the Application
-
-1. Ensure Docker and Docker Compose are installed on your system.  
-2. Run `docker-compose up -d` in the root project directory to start the API, Redis, and MSSQL Server containers.  
-3. Access the API Swagger UI at `http://localhost:5252/swagger` (or your configured port) to test endpoints.  
-4. For simulating client behavior, run the provided console application which interacts with the Sync API to minimize unnecessary data fetching.  
-5. Modify connection strings or environment variables in `.env` or `docker-compose.override.yml` as needed, especially the MSSQL connection string.  
-6. The default MSSQL connection string is:  
-   `Server=sqlserver,1433;Database=SmartCacheDb;User=sa;Password=K1a2m3A4l;Encrypt=False;TrustServerCertificate=True;`

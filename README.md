@@ -1,6 +1,6 @@
 # SmartCache API
 
-SmartCache is a scalable, high-performance ASP.NET Core 8 Web API designed to efficiently manage **Categories**, **Services**, and **Stories**. It employs **Redis caching** with a **version-based synchronization** strategy to reduce database load and optimize client-server data communication. The backend is powered by **Entity Framework Core** with **PostgreSQL**, all orchestrated via **Docker** for easy deployment and environment consistency.
+SmartCache is a scalable, high-performance ASP.NET Core 8 Web API designed to efficiently manage **Categories**, **Services**, and **Stories**. It employs **Redis caching** with a **version-based synchronization** strategy to reduce database load and optimize client-server data communication. The backend is powered by **Entity Framework Core** with **Microsoft SQL Server**, all orchestrated via **Docker** for easy deployment and environment consistency.
 
 ---
 
@@ -15,8 +15,6 @@ SmartCache is a scalable, high-performance ASP.NET Core 8 Web API designed to ef
 7. [Error Handling](#error-handling)  
 8. [Docker Setup & Deployment](#docker-setup--deployment)  
 9. [Running the Application](#running-the-application)  
-10. [Folder Structure](#folder-structure)  
-11. [Author](#author)
 
 ---
 
@@ -34,10 +32,10 @@ SmartCache aims to provide:
 ## Technologies & Tools
 
 - **ASP.NET Core 8** – Modern cross-platform framework for building Web APIs.  
-- **Entity Framework Core + PostgreSQL** – For robust data persistence and querying.  
+- **Entity Framework Core + Microsoft SQL Server** – For robust data persistence and querying.  
 - **Redis** – In-memory data structure store used for caching to boost read performance.  
 - **StackExchange.Redis** – .NET client library to communicate with Redis.  
-- **Docker** – Containerization platform to package API, Redis, and PostgreSQL consistently.  
+- **Docker** – Containerization platform to package API, Redis, and Microsoft SQL Server consistently.  
 - **Swagger (OpenAPI)** – Auto-generated API documentation and testing UI.  
 - **Serilog** – Structured logging framework.  
 - **Middleware** – Centralized exception handling.
@@ -83,49 +81,40 @@ Layers:
 
 ### Why Cache?
 
-- Reduces DB load for frequent GETs.  
-- Improves response latency.  
-- Scales well for read-heavy usage.
+- Reduces database load by serving frequent GET requests from Redis cache.  
+- Improves response times and scalability.
 
-### Cache Keys
+### Cache Keys & Expiry
 
-| Purpose           | Key Format        | Description                     |
-|-------------------|-------------------|---------------------------------|
-| List cache        | `{entity}:all`    | Cached list of all items         |
-| Single item cache | `{entity}:{id}`   | Cached single item detail        |
-| Version key       | `{entity}:version`| Current version integer          |
+| Purpose           | Key Format          | Description                   |
+|-------------------|---------------------|-------------------------------|
+| List cache        | `{entity}:all`      | Cached list of all items.     |
+| Single item cache | `{entity}:{id}`     | Cached detail of a single item. |
+| Version key       | `{entity}:version`  | Current integer version of the entity. |
 
-### Cache Expiry
-
-- Default TTL: **10 minutes** for cached data.  
-- Version keys do not expire; only increment on data changes.
+- Cached data expires after 10 minutes (TTL).  
+- Version keys do not expire; updated only on data changes.
 
 ### Cache Read Flow
 
-1. Try reading from Redis list cache.  
-2. On miss, fetch from DB, cache, then return with current version.  
-3. For single item, try single cache → fallback to list cache → fallback to DB → cache individual item.
+- **GetAll**: Read from `{entity}:all` cache, fallback to DB and cache if miss.  
+- **GetById**: Read from `{entity}:{id}` cache, fallback to DB and cache if miss.
 
 ### Cache Write Flow
 
-- **Create:** Insert DB → add to cached list or init → cache item → increment version.  
-- **Update:** Update DB → update cache item → remove cached list → increment version.  
-- **Delete:** Delete DB → remove cache item & list → increment version.
+- **Create**: Add to DB, cache individual item, append to cached list if present, increment version.  
+- **Update**: Update DB and individual cache, invalidate cached list, increment version.  
+- **Delete**: Remove from DB and both caches, increment version.
 
 ---
 
 ## Version-Based Cache Invalidation
 
-### Problem
+Clients track last synced versions and query the server to detect changes before fetching data:
 
-Clients cannot know if their cached data is stale without frequent full data fetches.
-
-### Solution
-
-- Clients keep last known versions.  
-- Call **SyncController**'s POST `/api/sync/check-versions` endpoint with client versions.  
-- Server compares and returns which entities have changed.  
-- Clients decide to refresh only if versions differ.
+- Clients POST their known versions to `/api/sync/check-versions`.  
+- Server returns entities with updated versions.  
+- Clients refresh only changed data, reducing unnecessary API calls.
 
 ---
 
@@ -169,3 +158,40 @@ Example:
   "message": "No changes detected.",
   "data": null
 }
+## Docker Setup & Deployment
+
+This project uses Docker Compose to run the ASP.NET Core API, Microsoft SQL Server database, and Redis cache in separate containers.
+
+### Prerequisites
+
+- Docker
+- Docker Compose
+
+### Running the Containers
+
+1. Build and start containers:
+
+```bash
+docker-compose up --build
+
+## Running the Application
+
+After setting up Docker containers, you can run and access the SmartCache API as follows:
+
+### Steps
+
+1. Ensure Docker and Docker Compose are installed and running on your machine.
+
+2. Start the application stack with:
+
+```bash
+docker-compose up --build
+## Running the Application
+
+1. Ensure Docker and Docker Compose are installed on your system.  
+2. Run `docker-compose up -d` in the root project directory to start the API, Redis, and MSSQL Server containers.  
+3. Access the API Swagger UI at `http://localhost:5252/swagger` (or your configured port) to test endpoints.  
+4. For simulating client behavior, run the provided console application which interacts with the Sync API to minimize unnecessary data fetching.  
+5. Modify connection strings or environment variables in `.env` or `docker-compose.override.yml` as needed, especially the MSSQL connection string.  
+6. The default MSSQL connection string is:  
+   `Server=sqlserver,1433;Database=SmartCacheDb;User=sa;Password=K1a2m3A4l;Encrypt=False;TrustServerCertificate=True;`

@@ -4,7 +4,6 @@ using SmartCache.Application.Common.Enums;
 using SmartCache.Application.Common.Response;
 using SmartCache.Application.Contracts.Services.Contract;
 using SmartCache.Application.DTOs.Category;
-using SmartCache.Application.DTOs.Story;
 
 namespace SmartCache.API.Controllers
 {
@@ -22,12 +21,10 @@ namespace SmartCache.API.Controllers
         [HttpGet]
         public async Task<IActionResult> GetAll()
         {
-            var data = await _serviceManager.CategoryService.GetAllAsync();
-            var version = await _serviceManager.CategoryService.GetVersionAsync();
-            return Ok(new ApiResponse<object>(ResponseCode.Success, ResponseMessages.ServicesRetrieved,data,version));
+            var (data, version) = await _serviceManager.CategoryService.GetAllAsync();
+            return Ok(new ApiResponse<object>(ResponseCode.Success, ResponseMessages.ServicesRetrieved, new {Version=version,Items=data}));
 
         }
-
 
         [HttpGet("{id}")]
         public async Task<IActionResult> GetById(int id)

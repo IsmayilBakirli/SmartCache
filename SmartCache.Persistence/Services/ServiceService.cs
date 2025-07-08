@@ -3,7 +3,6 @@ using SmartCache.Application.Common.Helpers;
 using SmartCache.Application.Common.Interfaces;
 using SmartCache.Application.Contracts.Repositories.Contract;
 using SmartCache.Application.Contracts.Services.Contract;
-using SmartCache.Application.DTOs.Category;
 using SmartCache.Application.DTOs.Service;
 using SmartCache.Application.Exceptions;
 using SmartCache.Application.MappingProfile;
@@ -61,11 +60,11 @@ namespace SmartCache.Persistence.Services
             await _redisService.SetAsync(VersionKey, version);
         }
 
-        public async Task<List<ServiceGetDto>> GetAllAsync()
+        public async Task<(List<ServiceGetDto>,int)> GetAllAsync()
         {
             var cached = await _redisService.GetAsync<List<ServiceGetDto>>(AllKey);
             if (cached != null)
-                return cached;
+                return (cached,await GetVersionAsync());
 
             _logger.LogInformation("DB-dən GetAllAsync çağırıldı. skip: {Skip}, take: {Take}");
 
@@ -76,7 +75,7 @@ namespace SmartCache.Persistence.Services
             var dtoList = data.MapToServiceGetDtos();
             await _redisService.SetAsync(AllKey, dtoList, _cacheExpiry);
 
-            return dtoList;
+            return (dtoList,await GetVersionAsync());
         }
 
         public async Task<ServiceGetDto> GetByIdAsync(int id)

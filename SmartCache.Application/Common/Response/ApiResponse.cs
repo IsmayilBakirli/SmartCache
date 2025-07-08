@@ -6,15 +6,13 @@ namespace SmartCache.Application.Common.Response
     {
         public int Code { get; set; }
         public string? Message { get; set; }
-        public int? Version { get; set; }
         public T? Data { get; set; }
 
-        public ApiResponse(ResponseCode code, string message, T? data = default, int? version = null)
+        public ApiResponse(ResponseCode code, string message, T? data = default)
         {
             Code = (int)code;
             Message = message;
             Data = data;
-            Version = version;
         }
     }
 }

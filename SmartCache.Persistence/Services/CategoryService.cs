@@ -58,12 +58,12 @@ namespace SmartCache.Persistence.Services
             version++;
             await _redisService.SetAsync(VersionKey, version);
         }
-        public async Task<List<CategoryGetDto>> GetAllAsync()
+        public async Task<(List<CategoryGetDto>,int)> GetAllAsync()
         {
             int version = await GetVersionAsync();
             var cached = await _redisService.GetAsync<List<CategoryGetDto>>(AllKey);
             if (cached != null)
-                return cached;
+                return (cached,await GetVersionAsync());
 
             _logger.LogInformation("DB-dən GetAllAsync çağırıldı. skip: {Skip}, take: {Take}");
 
@@ -75,7 +75,7 @@ namespace SmartCache.Persistence.Services
           
             await _redisService.SetAsync(AllKey, dtoList, _cacheExpiry);
 
-            return dtoList;
+            return (dtoList,version);
         }
 
 

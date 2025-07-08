@@ -2,7 +2,7 @@
 {
     public interface IBaseService<TGetDto, TCreateDto, TUpdateDto>
     {
-        Task<List<TGetDto>> GetAllAsync();
+        Task<(List<TGetDto>,int)> GetAllAsync();
 
         Task<TGetDto> GetByIdAsync(int id);
 

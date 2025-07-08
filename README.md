@@ -11,8 +11,9 @@ SmartCache is a scalable, high-performance ASP.NET Core 8 Web API designed to ef
 3. [Architecture & Design](#architecture--design)  
 4. [Caching Strategy with Redis](#caching-strategy-with-redis)  
 5. [Version-Based Cache Invalidation](#version-based-cache-invalidation)  
-6. [API Endpoints Overview](#api-endpoints-overview)  
-7. [Error Handling](#error-handling)  
+6. [Version Management](#version-managment)
+7. [API Endpoints Overview](#api-endpoints-overview)  
+8. [Error Handling](#error-handling)  
 
 ---
 
@@ -98,11 +99,24 @@ Layers:
 - **GetAll**: Read from `{entity}:all` cache, fallback to DB and cache if miss.  
 - **GetById**: Read from `{entity}:{id}` cache, fallback to DB and cache if miss.
 
-### Cache Write Flow
+### Cache Write Flow (Create / Update / Delete)
 
-- **Create**: Add to DB, cache individual item, append to cached list if present, increment version.  
-- **Update**: Update DB and individual cache, invalidate cached list, increment version.  
-- **Delete**: Remove from DB and both caches, increment version.
+- **Create:**  
+  - New item is added to the database.  
+  - Item details cached under `{entity}:{id}` key.  
+  - If `{entity}:all` list cache exists, the new item is appended and the list cache updated.  
+  - The entity's version key (`{entity}:version`) is incremented.
+
+- **Update:**  
+  - Item updated in the database.  
+  - Updated item details cached under `{entity}:{id}` key.  
+  - The `{entity}:all` list cache is invalidated (removed) to force reload on next request.  
+  - Version key incremented.
+
+- **Delete:**  
+  - Item deleted from the database.  
+  - Detail cache (`{entity}:{id}`) and list cache (`{entity}:all`) are removed.  
+  - Version key incremented.
 
 ---
 
@@ -115,7 +129,14 @@ Clients track last synced versions and query the server to detect changes before
 - Clients refresh only changed data, reducing unnecessary API calls.
 
 ---
+### Version Management
 
+- Each entity (`categories`, `services`, `stories`) maintains a version integer in Redis.  
+- Versions increment automatically on every create, update, or delete operation.  
+- Clients store version info with cached data and check for freshness via the `/api/sync/check-versions` endpoint.  
+- This mechanism allows clients to refresh only changed data, minimizing unnecessary API calls and improving efficiency.
+
+---
 ## API Endpoints Overview
 
 ### CategoriesController (`/api/categories`)

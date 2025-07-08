@@ -21,8 +21,8 @@ namespace SmartCache.API.Controllers
         [HttpGet]
         public async Task<IActionResult> GetAll()
         {
-            var data = await _serviceManager.CategoryService.GetAllAsync();
-            return Ok(new ApiResponse<object>(ResponseCode.Success, ResponseMessages.CategoriesRetrieved,data));
+            var (data, version) = await _serviceManager.CategoryService.GetAllAsync();
+            return Ok(new ApiResponse<object>(ResponseCode.Success, ResponseMessages.CategoriesRetrieved,data, version));
 
         }
 

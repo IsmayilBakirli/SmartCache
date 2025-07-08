@@ -3,10 +3,7 @@ using SmartCache.Application.Common.Constants;
 using SmartCache.Application.Common.Enums;
 using SmartCache.Application.Common.Response;
 using SmartCache.Application.Contracts.Services.Contract;
-using SmartCache.Application.DTOs.Category;
 using SmartCache.Application.DTOs.Service;
-using static System.Runtime.InteropServices.JavaScript.JSType;
-using System;
 
 namespace SmartCache.API.Controllers
 {
@@ -24,8 +21,9 @@ namespace SmartCache.API.Controllers
         [HttpGet]
         public async Task<IActionResult> GetAll()
         {
-            var data = await _serviceManager.ServiceService.GetAllAsync();
-            return Ok(new ApiResponse<object>(ResponseCode.Success, ResponseMessages.ServicesRetrieved, data));
+            var (data, version) = await _serviceManager.ServiceService.GetAllAsync();
+
+            return Ok(new ApiResponse<object>(ResponseCode.Success, ResponseMessages.ServicesRetrieved, data, version));
         }
 
 

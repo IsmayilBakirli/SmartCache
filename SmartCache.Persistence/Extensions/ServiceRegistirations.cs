@@ -1,6 +1,8 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using SmartCache.Application.Common.Helpers;
+using SmartCache.Application.Common.Interfaces;
 using SmartCache.Application.Contracts.Repositories.Contract;
 using SmartCache.Application.Contracts.Services.Contract;
 using SmartCache.Persistence.Contexts;

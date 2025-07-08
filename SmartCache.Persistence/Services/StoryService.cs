@@ -6,6 +6,7 @@ using SmartCache.Application.Contracts.Services.Contract;
 using SmartCache.Application.DTOs.Story;
 using SmartCache.Application.Exceptions;
 using SmartCache.Application.MappingProfile;
+using SmartCache.Domain.Entities;
 
 namespace SmartCache.Persistence.Services
 {
@@ -17,6 +18,7 @@ namespace SmartCache.Persistence.Services
         private readonly TimeSpan _cacheExpiry = TimeSpan.FromMinutes(10);
         private static readonly CacheKeyHelper.EntityKeyBuilder _keys = CacheKeyHelper.Stories;
 
+
         public StoryService(IRepositoryManager repositoryManager, IRedisService redisService, ILogger<StoryService> logger)
         {
             _repositoryManager = repositoryManager;
@@ -24,131 +26,190 @@ namespace SmartCache.Persistence.Services
             _logger = logger;
         }
 
-        public async Task<int> GetVersionAsync()
+
+        public async Task<(List<StoryGetDto>, int)> GetAllAsync()
         {
-            var version = await _redisService.GetAsync<int?>(_keys.Version);
-            if (version == null)
+            return (await GetOrSetCacheAsync(_keys.All, async () =>
             {
-                version = 0;
-                await _redisService.SetAsync(_keys.Version, version.Value);
-            }
-            return version.Value;
+                var data = await _repositoryManager.StoryRepository.GetAllAsync();
+                if (data == null || data.Count == 0)
+                    throw new NotFoundException("No stories found.");
+                return data.MapToStoryGetDtos();
+            }, _cacheExpiry), await GetVersionAsync());
         }
 
-        public async Task<bool> CheckVersionChange(int clientVersion)
-        {
-            var currentVersion = await GetVersionAsync();
-
-            if (clientVersion == currentVersion)
-                return false;
-
-            return true;
-        }
-
-        private async Task IncreaseVersionAsync()
-        {
-            var version = await GetVersionAsync();
-            version++;
-            await _redisService.SetAsync(_keys.Version, version);
-            _logger.LogInformation("IncreaseVersionAsync - Yeni versiya təyin olundu: {Version}", version);
-        }
-
-        public async Task<List<StoryGetDto>> GetAllAsync()
-        {
-            var cached = await _redisService.GetAsync<List<StoryGetDto>>(_keys.All);
-            if (cached != null)
-            {
-                _logger.LogInformation("GetAllAsync - Məlumat cache-dən qaytarıldı.");
-                return cached;
-            }
-
-            _logger.LogInformation("GetAllAsync - Cache tapılmadı, DB-dən çəkilir.");
-
-            var data = await _repositoryManager.StoryRepository.GetAllAsync();
-            if (data == null || data.Count == 0)
-                throw new NotFoundException("No stories found.");
-
-            var dtoList = data.MapToStoryGetDtos();
-            await _redisService.SetAsync(_keys.All, dtoList, _cacheExpiry);
-            _logger.LogInformation("GetAllAsync - DB-dən alınan məlumat cache-ə yazıldı.");
-
-            return dtoList;
-        }
-
-        public async Task<StoryGetDto> GetByIdAsync(int id)
-        {
-            var cachedDetail = await _redisService.GetAsync<StoryGetDto>(_keys.Detail(id));
-            if (cachedDetail != null)
-            {
-                _logger.LogInformation("GetByIdAsync - id: {Id} üçün məlumat cache-dən qaytarıldı.", id);
-                return cachedDetail;
-            }
-
-            _logger.LogInformation("GetByIdAsync - id: {Id} üçün cache tapılmadı, DB-dən çəkilir.", id);
-
-            var entity = await _repositoryManager.StoryRepository.FindByIdAsync(id);
-            if (entity == null)
-                throw new NotFoundException($"Story with id {id} not found.");
-
-            var dto = entity.MapToStoryGetDto();
-            await _redisService.SetAsync(_keys.Detail(id), dto, _cacheExpiry);
-            _logger.LogInformation("GetByIdAsync - id: {Id} üçün məlumat cache-ə yazıldı.", id);
-
-            return dto;
-        }
 
         public async Task CreateAsync(StoryCreateDto createDto)
         {
             var entity = createDto.MapToStory();
             await _repositoryManager.StoryRepository.CreateAsync(entity);
             var dto = entity.MapToStoryGetDto();
-
-            await _redisService.SetAsync(_keys.Detail(dto.Id), dto, _cacheExpiry);
-            _logger.LogInformation("CreateAsync - Yeni story id: {Id} üçün cache-ə yazıldı.", dto.Id);
-
-            var existingList = await _redisService.GetAsync<List<StoryGetDto>>(_keys.All);
-            if (existingList != null)
-            {
-                existingList.Add(dto);
-                await _redisService.SetAsync(_keys.All, existingList, _cacheExpiry);
-                _logger.LogInformation("CreateAsync - Yeni story id: {Id} ümumi cache listinə əlavə olundu.", dto.Id);
-            }
-
-            await IncreaseVersionAsync();
+            await UpdateCacheAfterCreateAsync(dto);
         }
+
 
         public async Task UpdateAsync(StoryUpdateDto updateDto)
         {
-            var existingDto = await GetByIdAsync(updateDto.Id);
-            if (existingDto == null)
-                throw new NotFoundException($"Story with id {updateDto.Id} not found");
-
-            var entity = existingDto.MapToStory();
-            updateDto.MapToStory(entity);
+            var entity = await GetEntityFromUpdateDtoAsync(updateDto);
+            UpdateEntityFromDto(entity, updateDto);
             await _repositoryManager.StoryRepository.UpdateAsync(entity);
-
-            var updatedDto = entity.MapToStoryGetDto();
-            await _redisService.SetAsync(_keys.Detail(updatedDto.Id), updatedDto, _cacheExpiry);
-            _logger.LogInformation("UpdateAsync - Story id: {Id} yeniləndi və cache-ə yazıldı.", updatedDto.Id);
-
-            await _redisService.RemoveAsync(_keys.All);
-            _logger.LogInformation("UpdateAsync - Ümumi cache ('{Key}') silindi.", _keys.All);
-
-            await IncreaseVersionAsync();
+            await UpdateCacheAsync(entity);
         }
+
 
         public async Task DeleteAsync(int id)
         {
             var dto = await GetByIdAsync(id);
             var entity = dto.MapToStory();
             await _repositoryManager.StoryRepository.DeleteAsync(entity);
+            await ClearCacheAfterDeleteAsync(id);
+        }
 
-            await _redisService.RemoveAsync(_keys.Detail(id));
-            _logger.LogInformation("DeleteAsync - Story id: {Id} üçün detail cache silindi.", id);
 
-            await _redisService.RemoveAsync(_keys.All);
-            _logger.LogInformation("DeleteAsync - Ümumi cache ('{Key}') silindi.", _keys.All);
+        public async Task<StoryGetDto> GetByIdAsync(int id)
+        {
+            return await GetOrSetCacheAsync(_keys.Detail(id), async () =>
+            {
+                var entity = await _repositoryManager.StoryRepository.FindByIdAsync(id);
+                if (entity == null)
+                    throw new NotFoundException($"Story with id {id} not found.");
+                return entity.MapToStoryGetDto();
+            }, _cacheExpiry);
+        }
 
+
+        public async Task<int> GetVersionAsync()
+        {
+            var version = await _redisService.GetAsync<int?>(_keys.Version) ?? 0;
+
+            if (version == 0)
+                await _redisService.SetAsync(_keys.Version, 0);
+
+            _logger.LogInformation(version == 0
+                ? "Version initialized to 0."
+                : "Current version: {Version}", version);
+
+            return version;
+        }
+
+
+        public async Task<bool> CheckVersionChange(int clientVersion)
+        {
+            var currentVersion = await GetVersionAsync();
+            var hasChanged = clientVersion != currentVersion;
+
+            if (!hasChanged)
+                _logger.LogInformation("No version change detected. Client version: {ClientVersion}", clientVersion);
+
+            return hasChanged;
+        }
+
+
+        private async Task IncreaseVersionAsync()
+        {
+            var version = await GetVersionAsync();
+            version++;
+            await _redisService.SetAsync(_keys.Version, version);
+            _logger.LogInformation("Cache version increased to: {Version}", version);
+        }
+
+
+        // Generic cache helper methods
+
+
+        public async Task<T> GetOrSetCacheAsync<T>(string key, Func<Task<T>> factory, TimeSpan? expiration = null)
+        {
+            var cached = await _redisService.GetAsync<T>(key);
+            if (cached != null)
+            {
+                _logger.LogInformation("Cache hit for key: {Key}", key);
+                return cached;
+            }
+
+            _logger.LogInformation("Cache miss for key: {Key}. Loading from database...", key);
+
+            var result = await factory();
+
+            await _redisService.SetAsync(key, result, expiration ?? _cacheExpiry);
+            _logger.LogInformation("Data cached for key: {Key}", key);
+
+            return result;
+        }
+
+
+        private async Task<T?> GetCacheAsync<T>(string key)
+        {
+            var cached = await _redisService.GetAsync<T>(key);
+
+            _logger.LogInformation(cached != null
+                ? "Cache hit for key: {Key}"
+                : "Cache miss for key: {Key}", key);
+
+            return cached;
+        }
+
+
+        private async Task SetCacheAsync<T>(string key, T value)
+        {
+            await _redisService.SetAsync(key, value, _cacheExpiry);
+            _logger.LogInformation("Cache set for key: {Key}", key);
+        }
+
+
+        private async Task RemoveCacheAsync(string key)
+        {
+            await _redisService.RemoveAsync(key);
+            _logger.LogInformation("Cache removed for key: {Key}", key);
+        }
+
+
+        private async Task UpdateCacheAfterCreateAsync(StoryGetDto dto)
+        {
+            await SetCacheAsync(_keys.Detail(dto.Id), dto);
+
+            var existingList = await GetCacheAsync<List<StoryGetDto>>(_keys.All);
+            if (existingList != null)
+            {
+                existingList.Add(dto);
+                await SetCacheAsync(_keys.All, existingList);
+                _logger.LogInformation("UpdateCacheAfterCreateAsync - New story id: {Id} added to the all-stories cache list.", dto.Id);
+            }
+            await IncreaseVersionAsync();
+        }
+
+
+        private async Task<Story> GetEntityFromUpdateDtoAsync(StoryUpdateDto updateDto)
+        {
+            var existingDto = await GetByIdAsync(updateDto.Id);
+            if (existingDto == null)
+                throw new NotFoundException($"Story with id {updateDto.Id} not found.");
+
+            var entity = existingDto.MapToStory();
+            return entity;
+        }
+
+
+        private void UpdateEntityFromDto(Story entity, StoryUpdateDto updateDto)
+        {
+            updateDto.MapToStory(entity);
+        }
+
+
+        private async Task UpdateCacheAsync(Story entity)
+        {
+            var updatedDto = entity.MapToStoryGetDto();
+            await SetCacheAsync(_keys.Detail(updatedDto.Id), updatedDto);
+            await RemoveCacheAsync(_keys.All);
+            _logger.LogInformation("UpdateAsync - All stories cache cleared.");
+            await IncreaseVersionAsync();
+        }
+
+
+        private async Task ClearCacheAfterDeleteAsync(int id)
+        {
+            await RemoveCacheAsync(_keys.Detail(id));
+            await RemoveCacheAsync(_keys.All);
+            _logger.LogInformation("DeleteAsync - Story detail and all stories cache cleared.");
             await IncreaseVersionAsync();
         }
     }

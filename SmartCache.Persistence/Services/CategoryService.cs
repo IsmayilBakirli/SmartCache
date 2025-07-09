@@ -6,6 +6,7 @@ using SmartCache.Application.Contracts.Services.Contract;
 using SmartCache.Application.DTOs.Category;
 using SmartCache.Application.Exceptions;
 using SmartCache.Application.MappingProfile;
+using SmartCache.Domain.Entities;
 
 namespace SmartCache.Persistence.Services
 {
@@ -29,10 +30,11 @@ namespace SmartCache.Persistence.Services
             return (await GetOrSetCacheAsync(_keys.All, async () =>
             {
                 var entities = await _repositoryManager.CategoryRepository.GetAllAsync();
-                return (entities == null || entities.Count == 0)
-                    ? throw new NotFoundException("No categories found.")
-                    : entities.MapToCategoryGetDtos();
-            }), await GetVersionAsync());
+                if (entities == null || entities.Count == 0)
+                    throw new NotFoundException("No categories found.");
+
+                return entities.MapToCategoryGetDtos();
+            }, _cacheExpiry), await GetVersionAsync());
         }
 
         public async Task<CategoryGetDto> GetByIdAsync(int id)
@@ -40,70 +42,43 @@ namespace SmartCache.Persistence.Services
             return await GetOrSetCacheAsync(_keys.Detail(id), async () =>
             {
                 var entity = await _repositoryManager.CategoryRepository.FindByIdAsync(id);
-                return entity == null
-                    ? throw new NotFoundException($"Category with id {id} not found.")
-                    : entity.MapToCategoryGetDto();
-            });
+                if (entity == null)
+                    throw new NotFoundException($"Category with id {id} not found.");
+
+                return entity.MapToCategoryGetDto();
+            }, _cacheExpiry);
         }
 
         public async Task CreateAsync(CategoryCreateDto createDto)
         {
             var entity = createDto.MapToCategory();
             await _repositoryManager.CategoryRepository.CreateAsync(entity);
-            var dto = entity.MapToCategoryGetDto();
-            await SetCacheAsync(_keys.Detail(dto.Id), dto);
-            _logger.LogInformation("New category created. Id: {Id}", dto.Id);
 
-            var existingList = await _redisService.GetAsync<List<CategoryGetDto>>(_keys.All);
-            if (existingList != null)
-            {
-                existingList.Add(dto);
-                await _redisService.SetAsync(_keys.All, existingList, _cacheExpiry);
-                _logger.LogInformation("CreateAsync - New category id: {Id} added to the all-categories cache list.", dto.Id);
-            }
-            await IncreaseVersionAsync();
+            var dto = entity.MapToCategoryGetDto();
+
+            await UpdateCacheAfterCreateAsync(dto);
         }
 
         public async Task UpdateAsync(CategoryUpdateDto updateDto)
         {
-            var existingDto = await GetByIdAsync(updateDto.Id); // Reading from cache
-            var entity = existingDto.MapToCategory(); // Careful here
+            var entity = await GetEntityFromUpdateDtoAsync(updateDto);
 
-            updateDto.MapToCategory(entity);
+            UpdateEntityFromDto(entity, updateDto);
+
             await _repositoryManager.CategoryRepository.UpdateAsync(entity);
 
-            var updatedDto = entity.MapToCategoryGetDto();
-            await _redisService.SetAsync(_keys.Detail(updatedDto.Id), updatedDto, _cacheExpiry);
-            _logger.LogInformation("Category updated. Id: {Id}", updatedDto.Id);
-            await _redisService.RemoveAsync(_keys.All);
-            _logger.LogInformation("All categories cache cleared.");
-            await IncreaseVersionAsync();
+            await UpdateCacheAsync(entity);
         }
 
         public async Task DeleteAsync(int id)
         {
-            var existingDto = await GetByIdAsync(id);
-            if (existingDto == null)
-            {
-                _logger.LogWarning("Category to delete not found. Id: {Id}", id);
-                throw new NotFoundException($"Category with id {id} not found.");
-            }
+            await ValidateDeleteAsync(id);
 
-            var entity = await _repositoryManager.CategoryRepository.FindByIdAsync(id)
-                ?? throw new NotFoundException($"Category with id {id} not found in database.");
-
-            if (!await _repositoryManager.CategoryRepository.CanDeleteCategoryAsync(id))
-            {
-                _logger.LogWarning("Category cannot be deleted because it is in use. Id: {Id}", id);
-                throw new BadRequestException("Category is used by other services and cannot be deleted.");
-            }
+            var entity = await GetEntityByIdAsync(id);
 
             await _repositoryManager.CategoryRepository.DeleteAsync(entity);
-            await RemoveCacheAsync(_keys.Detail(id));
-            await RemoveCacheAsync(_keys.All);
-            await IncreaseVersionAsync();
 
-            _logger.LogInformation("Category successfully deleted. Id: {Id}", id);
+            await ClearCacheAfterDeleteAsync(id);
         }
 
         public async Task<int> GetVersionAsync()
@@ -144,7 +119,7 @@ namespace SmartCache.Persistence.Services
 
             var result = await factory();
 
-            await _redisService.SetAsync(key, result, expiration ?? TimeSpan.FromMinutes(10));
+            await _redisService.SetAsync(key, result, expiration ?? _cacheExpiry);
             _logger.LogInformation("Data cached for key: {Key}", key);
 
             return result;
@@ -175,10 +150,90 @@ namespace SmartCache.Persistence.Services
 
         private async Task IncreaseVersionAsync()
         {
-            var version = await _redisService.GetAsync<int?>(_keys.Version) ?? 0;
+            var version = await GetVersionAsync();
             version++;
             await _redisService.SetAsync(_keys.Version, version);
             _logger.LogInformation("Cache version increased to: {Version}", version);
+        }
+
+        private async Task UpdateCacheAfterCreateAsync(CategoryGetDto dto)
+        {
+            await SetCacheAsync(_keys.Detail(dto.Id), dto);
+
+            var existingList = await GetCacheAsync<List<CategoryGetDto>>(_keys.All);
+            if (existingList != null)
+            {
+                existingList.Add(dto);
+                await SetCacheAsync(_keys.All, existingList);
+                _logger.LogInformation("UpdateCacheAfterCreateAsync - New category id: {Id} added to the all-categories cache list.", dto.Id);
+            }
+
+            await IncreaseVersionAsync();
+            _logger.LogInformation("New category created. Id: {Id}", dto.Id);
+        }
+
+        private async Task<Category> GetEntityFromUpdateDtoAsync(CategoryUpdateDto updateDto)
+        {
+            var existingDto = await GetByIdAsync(updateDto.Id);
+            if (existingDto == null)
+                throw new NotFoundException($"Category with id {updateDto.Id} not found.");
+
+            return existingDto.MapToCategory();
+        }
+
+        private void UpdateEntityFromDto(Category entity, CategoryUpdateDto updateDto)
+        {
+            updateDto.MapToCategory(entity);
+        }
+
+        private async Task UpdateCacheAsync(Category entity)
+        {
+
+            var updatedDto = entity.MapToCategoryGetDto();
+
+            await SetCacheAsync(_keys.Detail(updatedDto.Id), updatedDto);
+            _logger.LogInformation("Category updated. Id: {Id}", updatedDto.Id);
+
+            await RemoveCacheAsync(_keys.All);
+            _logger.LogInformation("All categories cache cleared.");
+
+            await IncreaseVersionAsync();
+        }
+
+        private async Task ValidateDeleteAsync(int id)
+        {
+            var existingDto = await GetByIdAsync(id);
+            if (existingDto == null)
+            {
+                _logger.LogWarning("Category to delete not found. Id: {Id}", id);
+                throw new NotFoundException($"Category with id {id} not found.");
+            }
+
+            if (!await _repositoryManager.CategoryRepository.CanDeleteCategoryAsync(id))
+            {
+                _logger.LogWarning("Category cannot be deleted because it is in use. Id: {Id}", id);
+                throw new BadRequestException("Category is used by other services and cannot be deleted.");
+            }
+        }
+
+        private async Task<Category> GetEntityByIdAsync(int id)
+        {
+            var entity = await _repositoryManager.CategoryRepository.FindByIdAsync(id);
+            if (entity == null)
+                throw new NotFoundException($"Category with id {id} not found in database.");
+
+            return entity;
+        }
+
+        private async Task ClearCacheAfterDeleteAsync(int id)
+        {
+            await RemoveCacheAsync(_keys.Detail(id));
+            await RemoveCacheAsync(_keys.All);
+
+            await IncreaseVersionAsync();
+
+            _logger.LogInformation("Category successfully deleted. Id: {Id}", id);
+            _logger.LogInformation("Cache cleared after delete for category id: {Id}", id);
         }
     }
 }

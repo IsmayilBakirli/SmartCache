@@ -1,9 +1,6 @@
 ﻿using SmartCache.Application.Common.Interfaces;
 using StackExchange.Redis;
 using System.Text.Json;
-using System.Linq;
-using System.Threading.Tasks;
-using System;
 
 public class RedisService : IRedisService
 {

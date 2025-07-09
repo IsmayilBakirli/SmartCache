@@ -11,7 +11,7 @@ SmartCache is a scalable, high-performance ASP.NET Core 8 Web API designed to ef
 3. [Architecture & Design](#architecture--design)  
 4. [Caching Strategy with Redis](#caching-strategy-with-redis)  
 5. [Version-Based Cache Invalidation](#version-based-cache-invalidation)  
-6. [Version Management](#version-managment)
+6. [Version Management](#version-management)
 7. [API Endpoints Overview](#api-endpoints-overview)  
 8. [Error Handling](#error-handling)  
 

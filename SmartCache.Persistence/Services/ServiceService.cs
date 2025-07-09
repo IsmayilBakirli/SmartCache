@@ -6,6 +6,7 @@ using SmartCache.Application.Contracts.Services.Contract;
 using SmartCache.Application.DTOs.Service;
 using SmartCache.Application.Exceptions;
 using SmartCache.Application.MappingProfile;
+using SmartCache.Domain.Entities;
 
 namespace SmartCache.Persistence.Services
 {
@@ -23,7 +24,8 @@ namespace SmartCache.Persistence.Services
             _redisService = redisService;
             _logger = logger;
         }
-        public async Task<(List<ServiceGetDto>,int)> GetAllAsync()
+
+        public async Task<(List<ServiceGetDto>, int)> GetAllAsync()
         {
             return (await GetOrSetCacheAsync(_keys.All, async () =>
             {
@@ -32,7 +34,7 @@ namespace SmartCache.Persistence.Services
                     throw new NotFoundException("No services found.");
 
                 return data.MapToServiceGetDtos();
-            }), await GetVersionAsync());
+            }, _cacheExpiry), await GetVersionAsync());
         }
 
         public async Task<ServiceGetDto> GetByIdAsync(int id)
@@ -40,79 +42,53 @@ namespace SmartCache.Persistence.Services
             return await GetOrSetCacheAsync(_keys.Detail(id), async () =>
             {
                 var entity = await _repositoryManager.ServiceRepository.FindByIdAsync(id);
+                
                 if (entity == null)
                     throw new NotFoundException($"Service with id {id} not found.");
+                var category = await _repositoryManager.CategoryRepository.FindByIdAsync(entity.CategoryId);
+                entity.Category = category;
 
                 return entity.MapToServiceGetDto();
-            });
+            }, _cacheExpiry);
         }
+
         public async Task CreateAsync(ServiceCreateDto createDto)
         {
-            var category = await _repositoryManager.CategoryRepository.FindByIdAsync(createDto.CategoryId);
-            if (category == null)
-                throw new NotFoundException($"Category with id {createDto.CategoryId} not found.");
-
-            var entity = createDto.MapToService();
+            await ValidateCategoryExistsAsync(createDto.CategoryId);
+            var entity = await MapToServiceAsync(createDto);
             await _repositoryManager.ServiceRepository.CreateAsync(entity);
 
-            var createdEntity = await _repositoryManager.ServiceRepository.FindByIdAsync(entity.Id);
-            var dto = createdEntity.MapToServiceGetDto();
+            var dto = entity.MapToServiceGetDto();
 
-            await SetCacheAsync(_keys.Detail(dto.Id), dto);
-            _logger.LogInformation("New service created and cached. Id: {Id}", dto.Id);
-
-            var existingList = await GetCacheAsync<List<ServiceGetDto>>(_keys.All);
-            if (existingList != null)
-            {
-                existingList.Add(dto);
-                await SetCacheAsync(_keys.All, existingList);
-                _logger.LogInformation("New service added to all-services cache. Id: {Id}", dto.Id);
-            }
-
-            await IncreaseVersionAsync();
+            await UpdateCacheAfterCreateAsync(dto);
         }
 
         public async Task UpdateAsync(ServiceUpdateDto updateDto)
         {
-            var existingDto = await GetByIdAsync(updateDto.Id);
+            var entity = await GetEntityFromUpdateDtoAsync(updateDto);
 
-            var category = await _repositoryManager.CategoryRepository.FindByIdAsync(updateDto.CategoryId);
-            if (category == null)
-                throw new NotFoundException($"Category with id {updateDto.CategoryId} not found.");
+            await ValidateCategoryExistsAsync(updateDto.CategoryId);
+            
+            UpdateEntityFromDto(entity, updateDto);
 
-            var entity = existingDto.MapToService();
-            updateDto.MapToService(entity);
             await _repositoryManager.ServiceRepository.UpdateAsync(entity);
 
-            var updatedDto = entity.MapToServiceGetDto();
-
-            await SetCacheAsync(_keys.Detail(updatedDto.Id), updatedDto);
-            _logger.LogInformation("Service updated and cached. Id: {Id}", updatedDto.Id);
-
-            await RemoveCacheAsync(_keys.All);
-            _logger.LogInformation("All-services cache cleared.");
-
-            await IncreaseVersionAsync();
+            await UpdateCacheAsync(entity);
         }
 
         public async Task DeleteAsync(int id)
         {
-            var dto = await GetByIdAsync(id);
-            var entity = dto.MapToService();
+            var entity = await GetEntityByIdAsync(id);
 
             await _repositoryManager.ServiceRepository.DeleteAsync(entity);
 
-            await RemoveCacheAsync(_keys.Detail(id));
-            _logger.LogInformation("Detail cache removed for service id: {Id}", id);
-
-            await RemoveCacheAsync(_keys.All);
-            _logger.LogInformation("All-services cache cleared.");
-
-            await IncreaseVersionAsync();
+            await ClearCacheAfterDeleteAsync(id);
         }
+
         public async Task<int> GetVersionAsync()
         {
             var version = await _redisService.GetAsync<int?>(_keys.Version) ?? 0;
+
             if (version == 0)
                 await _redisService.SetAsync(_keys.Version, 0);
 
@@ -142,9 +118,77 @@ namespace SmartCache.Persistence.Services
             _logger.LogInformation("Cache version increased to: {Version}", version);
         }
 
+        private async Task UpdateCacheAfterCreateAsync(ServiceGetDto dto)
+        {
+            await SetCacheAsync(_keys.Detail(dto.Id), dto);
 
+            var existingList = await GetCacheAsync<List<ServiceGetDto>>(_keys.All);
+            if (existingList != null)
+            {
+                existingList.Add(dto);
+                await SetCacheAsync(_keys.All, existingList);
+                _logger.LogInformation("UpdateCacheAfterCreateAsync - New service id: {Id} added to the all-services cache list.", dto.Id);
+            }
 
+            await IncreaseVersionAsync();
+            _logger.LogInformation("New service created. Id: {Id}", dto.Id);
+        }
 
+        private async Task<Service> GetEntityFromUpdateDtoAsync(ServiceUpdateDto updateDto)
+        {
+            var existingDto = await GetByIdAsync(updateDto.Id);
+            if (existingDto == null)
+                throw new NotFoundException($"Service with id {updateDto.Id} not found.");
+            return existingDto.MapToService();
+        }
+
+        private void UpdateEntityFromDto(Service entity, ServiceUpdateDto updateDto)
+        {
+            updateDto.MapToService(entity);
+        }
+
+        private async Task UpdateCacheAsync(Service entity)
+        {
+            var updatedDto = entity.MapToServiceGetDto();
+
+            await SetCacheAsync(_keys.Detail(updatedDto.Id), updatedDto);
+            _logger.LogInformation("Service updated. Id: {Id}", updatedDto.Id);
+
+            await RemoveCacheAsync(_keys.All);
+            _logger.LogInformation("All services cache cleared.");
+
+            await IncreaseVersionAsync();
+        }
+
+        private async Task ValidateCategoryExistsAsync(int categoryId)
+        {
+            var category = await _repositoryManager.CategoryRepository.FindByIdAsync(categoryId);
+            if (category == null)
+            {
+                _logger.LogWarning("Category not found. Id: {CategoryId}", categoryId);
+                throw new NotFoundException($"Category with id {categoryId} not found.");
+            }
+        }
+
+        private async Task<Service> GetEntityByIdAsync(int id)
+        {
+            var entity = await _repositoryManager.ServiceRepository.FindByIdAsync(id);
+            if (entity == null)
+                throw new NotFoundException($"Service with id {id} not found.");
+
+            return entity;
+        }
+
+        private async Task ClearCacheAfterDeleteAsync(int id)
+        {
+            await RemoveCacheAsync(_keys.Detail(id));
+            await RemoveCacheAsync(_keys.All);
+
+            await IncreaseVersionAsync();
+
+            _logger.LogInformation("Service successfully deleted. Id: {Id}", id);
+            _logger.LogInformation("Cache cleared after delete for service id: {Id}", id);
+        }
 
         public async Task<T> GetOrSetCacheAsync<T>(string key, Func<Task<T>> factory, TimeSpan? expiration = null)
         {
@@ -187,5 +231,14 @@ namespace SmartCache.Persistence.Services
             await _redisService.RemoveAsync(key);
             _logger.LogInformation("Cache removed for key: {Key}", key);
         }
+        private async Task<Service> MapToServiceAsync(ServiceCreateDto dto)
+        {
+            var entity = dto.MapToService();
+
+            var category = await _repositoryManager.CategoryRepository.FindByIdAsync(dto.CategoryId);
+            entity.Category = category;
+            return entity;
+        }
+
     }
 }

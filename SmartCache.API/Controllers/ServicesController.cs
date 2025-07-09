@@ -12,20 +12,18 @@ namespace SmartCache.API.Controllers
     public class ServicesController : ControllerBase
     {
         private readonly IServiceManager _serviceManager;
-
         public ServicesController(IServiceManager serviceManager)
         {
             _serviceManager = serviceManager;
         }
 
+
         [HttpGet]
         public async Task<IActionResult> GetAll()
         {
             var (data, version) = await _serviceManager.ServiceService.GetAllAsync();
-
             return Ok(new ApiResponse<object>(ResponseCode.Success, ResponseMessages.ServicesRetrieved, data, version));
         }
-
 
 
         [HttpGet("{id}")]
@@ -35,6 +33,7 @@ namespace SmartCache.API.Controllers
             return Ok(new ApiResponse<ServiceGetDto>(ResponseCode.Success, ResponseMessages.StoryRetrieved, data));
         }
 
+
         [HttpPost]
         public async Task<IActionResult> Add(ServiceCreateDto dto)
         {
@@ -42,12 +41,14 @@ namespace SmartCache.API.Controllers
             return Created("", new ApiResponse<object>(ResponseCode.Created, ResponseMessages.ServiceCreated));
         }
 
+
         [HttpPut]
         public async Task<IActionResult> Update(ServiceUpdateDto dto)
         {
             await _serviceManager.ServiceService.UpdateAsync(dto);
             return Ok(new ApiResponse<object>(ResponseCode.Updated, ResponseMessages.ServiceUpdated));
         }
+
 
         [HttpDelete("{id}")]
         public async Task<IActionResult> Delete(int id)

@@ -6,18 +6,22 @@ using System.Linq.Expressions;
 
 namespace SmartCache.Persistence.Repositories.Base
 {
-    public class BaseRepository<T> :IBaseRepository<T> where T : BaseEntity, new()
+    public class BaseRepository<T> : IBaseRepository<T> where T : BaseEntity, new()
     {
         protected readonly string _connectionString;
         protected readonly string _tableName;
 
-        public BaseRepository(string connectionString,string tableName)
+
+        public BaseRepository(string connectionString, string tableName)
         {
             _connectionString = connectionString;
             _tableName = tableName;
-
         }
+
+
         protected virtual string TableName => _tableName;
+
+
         public virtual async Task<T> CreateAsync(T entity)
         {
             using var connection = new SqlConnection(_connectionString);
@@ -66,6 +70,7 @@ namespace SmartCache.Persistence.Repositories.Base
             return entity;
         }
 
+
         public virtual async Task UpdateAsync(T entity)
         {
             using var connection = new SqlConnection(_connectionString);
@@ -106,6 +111,8 @@ namespace SmartCache.Persistence.Repositories.Base
 
             await command.ExecuteNonQueryAsync();
         }
+
+
         public virtual async Task DeleteAsync(T entity)
         {
             using var connection = new SqlConnection(_connectionString);
@@ -120,6 +127,7 @@ namespace SmartCache.Persistence.Repositories.Base
 
             await command.ExecuteNonQueryAsync();
         }
+
 
         public virtual async Task<T> FindByIdAsync(int id)
         {
@@ -141,13 +149,13 @@ namespace SmartCache.Persistence.Repositories.Base
             return null;
         }
 
+
         public virtual async Task<List<T>> GetAllAsync(int skip = 0, int take = int.MaxValue)
         {
             var list = new List<T>();
 
             using var connection = new SqlConnection(_connectionString);
             await connection.OpenAsync();
-
 
             using var command = connection.CreateCommand();
 
@@ -167,16 +175,17 @@ namespace SmartCache.Persistence.Repositories.Base
                 {
                     list.Add(MapToEntity(reader));
                 }
-
             }
 
             return list;
         }
 
+
         public virtual Task<List<T>> FindByConditionAsync(Expression<Func<T, bool>> expression, int skip = 0, int take = int.MaxValue)
         {
             throw new NotImplementedException("Override edin və öz SQL sorgunuzu yazın.");
         }
+
 
         protected virtual T MapToEntity(IDataRecord record)
         {
@@ -184,17 +193,10 @@ namespace SmartCache.Persistence.Repositories.Base
 
             foreach (var prop in typeof(T).GetProperties())
             {
-                try
-                {
-                    var value = record[prop.Name];
-                    if (value == DBNull.Value) value = null;
+                var value = record[prop.Name];
+                if (value == DBNull.Value) value = null;
 
-                    prop.SetValue(entity, value);
-                }
-                catch
-                {
-                    
-                }
+                prop.SetValue(entity, value);
             }
 
             return entity;

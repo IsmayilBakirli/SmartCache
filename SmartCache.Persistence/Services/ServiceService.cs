@@ -25,6 +25,7 @@ namespace SmartCache.Persistence.Services
             _logger = logger;
         }
 
+
         public async Task<(List<ServiceGetDto>, int)> GetAllAsync()
         {
             return (await GetOrSetCacheAsync(_keys.All, async () =>
@@ -37,14 +38,16 @@ namespace SmartCache.Persistence.Services
             }, _cacheExpiry), await GetVersionAsync());
         }
 
+
         public async Task<ServiceGetDto> GetByIdAsync(int id)
         {
             return await GetOrSetCacheAsync(_keys.Detail(id), async () =>
             {
                 var entity = await _repositoryManager.ServiceRepository.FindByIdAsync(id);
-                
+
                 if (entity == null)
                     throw new NotFoundException($"Service with id {id} not found.");
+
                 var category = await _repositoryManager.CategoryRepository.FindByIdAsync(entity.CategoryId);
                 entity.Category = category;
 
@@ -52,9 +55,11 @@ namespace SmartCache.Persistence.Services
             }, _cacheExpiry);
         }
 
+
         public async Task CreateAsync(ServiceCreateDto createDto)
         {
             await ValidateCategoryExistsAsync(createDto.CategoryId);
+
             var entity = await MapToServiceAsync(createDto);
             await _repositoryManager.ServiceRepository.CreateAsync(entity);
 
@@ -63,18 +68,20 @@ namespace SmartCache.Persistence.Services
             await UpdateCacheAfterCreateAsync(dto);
         }
 
+
         public async Task UpdateAsync(ServiceUpdateDto updateDto)
         {
             var entity = await GetEntityFromUpdateDtoAsync(updateDto);
 
             await ValidateCategoryExistsAsync(updateDto.CategoryId);
-            
+
             UpdateEntityFromDto(entity, updateDto);
 
             await _repositoryManager.ServiceRepository.UpdateAsync(entity);
 
             await UpdateCacheAsync(entity);
         }
+
 
         public async Task DeleteAsync(int id)
         {
@@ -84,6 +91,7 @@ namespace SmartCache.Persistence.Services
 
             await ClearCacheAfterDeleteAsync(id);
         }
+
 
         public async Task<int> GetVersionAsync()
         {
@@ -99,6 +107,7 @@ namespace SmartCache.Persistence.Services
             return version;
         }
 
+
         public async Task<bool> CheckVersionChange(int clientVersion)
         {
             var currentVersion = await GetVersionAsync();
@@ -110,6 +119,7 @@ namespace SmartCache.Persistence.Services
             return hasChanged;
         }
 
+
         private async Task IncreaseVersionAsync()
         {
             var version = await GetVersionAsync();
@@ -117,6 +127,7 @@ namespace SmartCache.Persistence.Services
             await _redisService.SetAsync(_keys.Version, version);
             _logger.LogInformation("Cache version increased to: {Version}", version);
         }
+
 
         private async Task UpdateCacheAfterCreateAsync(ServiceGetDto dto)
         {
@@ -134,18 +145,22 @@ namespace SmartCache.Persistence.Services
             _logger.LogInformation("New service created. Id: {Id}", dto.Id);
         }
 
+
         private async Task<Service> GetEntityFromUpdateDtoAsync(ServiceUpdateDto updateDto)
         {
             var existingDto = await GetByIdAsync(updateDto.Id);
             if (existingDto == null)
                 throw new NotFoundException($"Service with id {updateDto.Id} not found.");
+
             return existingDto.MapToService();
         }
+
 
         private void UpdateEntityFromDto(Service entity, ServiceUpdateDto updateDto)
         {
             updateDto.MapToService(entity);
         }
+
 
         private async Task UpdateCacheAsync(Service entity)
         {
@@ -160,6 +175,7 @@ namespace SmartCache.Persistence.Services
             await IncreaseVersionAsync();
         }
 
+
         private async Task ValidateCategoryExistsAsync(int categoryId)
         {
             var category = await _repositoryManager.CategoryRepository.FindByIdAsync(categoryId);
@@ -170,6 +186,7 @@ namespace SmartCache.Persistence.Services
             }
         }
 
+
         private async Task<Service> GetEntityByIdAsync(int id)
         {
             var entity = await _repositoryManager.ServiceRepository.FindByIdAsync(id);
@@ -178,6 +195,7 @@ namespace SmartCache.Persistence.Services
 
             return entity;
         }
+
 
         private async Task ClearCacheAfterDeleteAsync(int id)
         {
@@ -189,6 +207,7 @@ namespace SmartCache.Persistence.Services
             _logger.LogInformation("Service successfully deleted. Id: {Id}", id);
             _logger.LogInformation("Cache cleared after delete for service id: {Id}", id);
         }
+
 
         public async Task<T> GetOrSetCacheAsync<T>(string key, Func<Task<T>> factory, TimeSpan? expiration = null)
         {
@@ -209,6 +228,7 @@ namespace SmartCache.Persistence.Services
             return result;
         }
 
+
         private async Task<T?> GetCacheAsync<T>(string key)
         {
             var cached = await _redisService.GetAsync<T>(key);
@@ -220,25 +240,29 @@ namespace SmartCache.Persistence.Services
             return cached;
         }
 
+
         private async Task SetCacheAsync<T>(string key, T value)
         {
             await _redisService.SetAsync(key, value, _cacheExpiry);
             _logger.LogInformation("Cache set for key: {Key}", key);
         }
 
+
         private async Task RemoveCacheAsync(string key)
         {
             await _redisService.RemoveAsync(key);
             _logger.LogInformation("Cache removed for key: {Key}", key);
         }
+
+
         private async Task<Service> MapToServiceAsync(ServiceCreateDto dto)
         {
             var entity = dto.MapToService();
 
             var category = await _repositoryManager.CategoryRepository.FindByIdAsync(dto.CategoryId);
             entity.Category = category;
+
             return entity;
         }
-
     }
 }

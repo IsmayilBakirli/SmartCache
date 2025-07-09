@@ -23,8 +23,8 @@ namespace SmartCache.API.Controllers
         {
             var (data, version) = await _serviceManager.CategoryService.GetAllAsync();
             return Ok(new ApiResponse<object>(ResponseCode.Success, ResponseMessages.CategoriesRetrieved,data, version));
-
         }
+
 
         [HttpGet("{id}")]
         public async Task<IActionResult> GetById(int id)
@@ -32,6 +32,7 @@ namespace SmartCache.API.Controllers
             var data = await _serviceManager.CategoryService.GetByIdAsync(id);
             return Ok(new ApiResponse<CategoryGetDto>(ResponseCode.Success, ResponseMessages.StoryRetrieved, data));
         }
+
 
         [HttpPost]
         public async Task<IActionResult> Add(CategoryCreateDto dto)

@@ -5,12 +5,14 @@ namespace SmartCache.Application.DTOs.Version
     public class VersionCheckRequestDto
     {
         [Required]
-        public int CategoryVersion { get; set; }
+        public int ServiceVersion { get; set; }
 
         [Required]
         public int StoryVersion { get; set; }
-
         [Required]
-        public int ServiceVersion { get; set; }
+        public int CategoryVersion { get; set; }
+
+
+      
     }
 }

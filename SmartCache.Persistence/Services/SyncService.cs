@@ -14,22 +14,20 @@ namespace SmartCache.Persistence.Services
         {
             var tasks = new[]
             {
-                GetModuleVersionAsync("Category",
-                    () => _serviceManager.CategoryService.CheckVersionChange(dto.CategoryVersion),
-                    () => _serviceManager.CategoryService.GetVersionAsync()),
-
                 GetModuleVersionAsync("Service",
                     () => _serviceManager.ServiceService.CheckVersionChange(dto.ServiceVersion),
                     () => _serviceManager.ServiceService.GetVersionAsync()),
-
                 GetModuleVersionAsync("Story",
                     () => _serviceManager.StoryService.CheckVersionChange(dto.StoryVersion),
-                    () => _serviceManager.StoryService.GetVersionAsync())
+                    () => _serviceManager.StoryService.GetVersionAsync()),
+                GetModuleVersionAsync("Category",
+                    () => _serviceManager.CategoryService.CheckVersionChange(dto.CategoryVersion),
+                    () => _serviceManager.CategoryService.GetVersionAsync())
             };
-
             var results = await Task.WhenAll(tasks);
             return results.ToList();
         }
+
 
         private async Task<VersionResponseDto> GetModuleVersionAsync(string moduleName, Func<Task<bool>> checkFunc, Func<Task<int>> versionFunc)
         {

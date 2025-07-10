@@ -278,5 +278,6 @@ namespace SmartCache.Persistence.Services
 
             _logger.LogInformation("Cache cleared after delete for category id: {Id}", id);
         }
+
     }
 }

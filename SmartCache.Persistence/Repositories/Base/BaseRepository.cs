@@ -193,6 +193,12 @@ namespace SmartCache.Persistence.Repositories.Base
 
             foreach (var prop in typeof(T).GetProperties())
             {
+                if (prop.PropertyType.IsClass && prop.PropertyType != typeof(string))
+                    continue;
+
+                if (!ColumnExists(record, prop.Name))
+                    continue;
+
                 var value = record[prop.Name];
                 if (value == DBNull.Value) value = null;
 
@@ -201,5 +207,15 @@ namespace SmartCache.Persistence.Repositories.Base
 
             return entity;
         }
+        private bool ColumnExists(IDataRecord record, string columnName)
+        {
+            for (int i = 0; i < record.FieldCount; i++)
+            {
+                if (record.GetName(i).Equals(columnName, StringComparison.OrdinalIgnoreCase))
+                    return true;
+            }
+            return false;
+        }
+
     }
 }

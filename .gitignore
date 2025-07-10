@@ -1,7 +1,6 @@
 ## Ignore Visual Studio temporary files, build results
 
 .vs/
-*.csproj
 *.http
 appsettings.json
 
